@@ -126,3 +126,14 @@ const baseLayer = Layer.effect(
 export const layer = baseLayer.pipe(Layer.provide(FileSystemSearch.defaultLayer), Layer.provide(FSUtil.defaultLayer))
 
 export const locationLayer = layer
+
+export type AppFileSystemInterface = FSUtil.Interface
+export type AppFileSystemError = FSUtil.Error
+
+export const AppFileSystem = {
+  Service: FSUtil.Service,
+  use: FSUtil.use,
+  layer: FSUtil.layer,
+  defaultLayer: FSUtil.defaultLayer,
+  node: FSUtil.node,
+}
