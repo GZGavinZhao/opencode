@@ -70,6 +70,9 @@ export function retryable(error: Err, provider: string) {
   if (SessionV1.ContextOverflowError.isInstance(error)) return undefined
   if (SessionV1.APIError.isInstance(error)) {
     const status = error.data.statusCode
+    console.error(
+      `[auth_refresh] retryable check: name=${error.name} status=${status} isRetryable=${error.data.isRetryable} metadata=${JSON.stringify(error.data.metadata)}`,
+    )
     // 5xx errors are transient server failures and should always be retried,
     // even when the provider SDK doesn't explicitly mark them as retryable.
     if (!error.data.isRetryable && !(status !== undefined && status >= 500)) return undefined
@@ -186,6 +189,9 @@ export function policy(opts: {
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
       const error = opts.parse(meta.input)
+      console.error(
+        `[auth_refresh] policy step: attempt=${meta.attempt} errorName=${(error as any)?.name} input=${String(meta.input).slice(0, 200)}`,
+      )
       const retry = retryable(error, opts.provider)
       if (!retry) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
