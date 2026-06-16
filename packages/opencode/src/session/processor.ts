@@ -18,7 +18,7 @@ import type { SessionID } from "./schema"
 import { SessionRetry } from "./retry"
 import { SessionStatus } from "./status"
 import { SessionSummary } from "./summary"
-import type { Provider } from "@/provider/provider"
+import { Provider } from "@/provider/provider"
 import { Question } from "@/question"
 import { errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
@@ -106,6 +106,7 @@ export const layer = Layer.effect(
     const events = yield* EventV2Bridge.Service
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    const provider = yield* Provider.Service
 
     const create = Effect.fn("SessionProcessor.create")(function* (input: Input) {
       // Pre-capture snapshot before the LLM stream starts. The AI SDK
@@ -995,6 +996,24 @@ export const layer = Layer.effect(
               SessionRetry.policy({
                 provider: input.model.providerID,
                 parse,
+                onExpiredCredentials: () =>
+                  Effect.gen(function* () {
+                    const cfg = yield* config.get()
+                    const authRefresh = cfg.provider?.[input.model.providerID]?.options?.["auth_refresh"]
+                    if (typeof authRefresh === "string" && authRefresh.length > 0) {
+                      yield* Effect.logInfo("Refreshing credentials", {
+                        providerID: input.model.providerID,
+                        command: authRefresh,
+                      })
+                      const proc = Bun.spawn(["sh", "-c", authRefresh], { stdout: "pipe", stderr: "pipe" })
+                      const exitCode = yield* Effect.promise(() => proc.exited)
+                      if (exitCode !== 0) {
+                        const stderr = yield* Effect.promise(() => new Response(proc.stderr).text())
+                        yield* Effect.logWarning("auth_refresh command failed", { exitCode, stderr })
+                      }
+                    }
+                    yield* provider.evictSDK(input.model.providerID)
+                  }),
                 set: (info) => {
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
                   const event = mirrorAssistant
@@ -1062,6 +1081,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(RuntimeFlags.defaultLayer),
     Layer.provide(Database.defaultLayer),
     Layer.provide(EventV2Bridge.defaultLayer),
+    Layer.provide(Provider.defaultLayer),
   ),
 )
 
@@ -1079,6 +1099,7 @@ export const node = LayerNode.make(layer, [
   EventV2Bridge.node,
   RuntimeFlags.node,
   Database.node,
+  Provider.node,
 ])
 
 export * as SessionProcessor from "./processor"

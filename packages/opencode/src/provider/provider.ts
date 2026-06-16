@@ -1120,6 +1120,7 @@ export interface Interface {
   ) => Effect.Effect<{ providerID: ProviderV2.ID; modelID: string } | undefined>
   readonly getSmallModel: (providerID: ProviderV2.ID) => Effect.Effect<Model | undefined>
   readonly defaultModel: () => Effect.Effect<{ providerID: ProviderV2.ID; modelID: ModelV2.ID }, DefaultModelError>
+  readonly evictSDK: (providerID: ProviderV2.ID) => Effect.Effect<void>
 }
 
 interface State {
@@ -1127,6 +1128,8 @@ interface State {
   providers: Record<ProviderV2.ID, Info>
   catalog: Record<ProviderV2.ID, Info>
   sdk: Map<string, BundledSDK>
+  // index: maps providerID → set of sdk cache keys for that provider
+  sdkProviders: Map<ProviderV2.ID, Set<string>>
   modelLoaders: Record<string, CustomModelLoader>
   varsLoaders: Record<string, CustomVarsLoader>
 }
@@ -1310,6 +1313,7 @@ export const layer = Layer.effect(
           [providerID: string]: CustomVarsLoader
         } = {}
         const sdk = new Map<string, BundledSDK>()
+        const sdkProviders = new Map<ProviderV2.ID, Set<string>>()
         const discoveryLoaders: {
           [providerID: string]: CustomDiscoverModels
         } = {}
@@ -1611,6 +1615,7 @@ export const layer = Layer.effect(
           providers,
           catalog,
           sdk,
+          sdkProviders,
           modelLoaders,
           varsLoaders,
         }
@@ -1618,6 +1623,12 @@ export const layer = Layer.effect(
     )
 
     const list = Effect.fn("Provider.list")(() => InstanceState.use(state, (s) => s.providers))
+
+    function indexSDKKey(s: State, providerID: ProviderV2.ID, key: string) {
+      const keys = s.sdkProviders.get(providerID) ?? new Set<string>()
+      keys.add(key)
+      s.sdkProviders.set(providerID, keys)
+    }
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
@@ -1724,6 +1735,7 @@ export const layer = Layer.effect(
             ...options,
           })
           s.sdk.set(key, loaded)
+          indexSDKKey(s, model.providerID, key)
           return loaded as SDK
         }
 
@@ -1747,6 +1759,7 @@ export const layer = Layer.effect(
           ...options,
         })
         s.sdk.set(key, loaded)
+        indexSDKKey(s, model.providerID, key)
         return loaded as SDK
       } catch (e) {
         throw new InitError({ providerID: model.providerID, cause: e })
@@ -1928,7 +1941,21 @@ export const layer = Layer.effect(
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    const evictSDK = Effect.fn("Provider.evictSDK")(function* (providerID: ProviderV2.ID) {
+      const s = yield* InstanceState.get(state)
+      // Evict all SDK instances and language models for this provider so the
+      // next call to getLanguage rebuilds them with fresh credentials.
+      const sdkKeys = s.sdkProviders.get(providerID)
+      if (sdkKeys) {
+        for (const key of sdkKeys) s.sdk.delete(key)
+        s.sdkProviders.delete(providerID)
+      }
+      for (const key of s.models.keys()) {
+        if (key.startsWith(`${providerID}/`)) s.models.delete(key)
+      }
+    })
+
+    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel, evictSDK })
   }),
 )
 

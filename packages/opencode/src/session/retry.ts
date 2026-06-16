@@ -173,10 +173,15 @@ function parseJSON(value: unknown) {
   })
 }
 
+export function isExpiredCredentials(error: Err) {
+  return SessionV1.APIError.isInstance(error) && error.data.metadata?.["expired_credentials"] === "true"
+}
+
 export function policy(opts: {
   provider: string
   parse: (error: unknown) => Err
   set: (input: { attempt: number; message: string; action?: Retryable["action"]; next: number }) => Effect.Effect<void>
+  onExpiredCredentials?: () => Effect.Effect<void>
 }) {
   return Schedule.fromStepWithMetadata(
     Effect.succeed((meta: Schedule.InputMetadata<unknown>) => {
@@ -184,7 +189,9 @@ export function policy(opts: {
       const retry = retryable(error, opts.provider)
       if (!retry) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
-        const wait = delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
+        const expired = isExpiredCredentials(error)
+        if (expired && opts.onExpiredCredentials) yield* opts.onExpiredCredentials()
+        const wait = expired ? 0 : delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis
         yield* opts.set({
           attempt: meta.attempt,

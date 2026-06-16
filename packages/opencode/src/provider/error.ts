@@ -162,6 +162,20 @@ export type ParsedAPICallError =
       metadata?: Record<string, string>
     }
 
+const EXPIRED_TOKEN_PATTERNS = [
+  "ExpiredTokenException",
+  "ExpiredToken",
+  "TokenRefreshRequired",
+  "The security token included in the request is expired",
+  "credentials expired",
+]
+
+function isExpiredToken(e: APICallError) {
+  const body = e.responseBody ?? ""
+  const msg = e.message ?? ""
+  return EXPIRED_TOKEN_PATTERNS.some((p) => body.includes(p) || msg.includes(p))
+}
+
 export function parseAPICallError(input: { providerID: ProviderV2.ID; error: APICallError }): ParsedAPICallError {
   const m = message(input.providerID, input.error)
   const body = json(input.error.responseBody)
@@ -173,15 +187,23 @@ export function parseAPICallError(input: { providerID: ProviderV2.ID; error: API
     }
   }
 
-  const metadata = input.error.url ? { url: input.error.url } : undefined
+  const isExpiredCredentials = isExpiredToken(input.error)
+  const metadata: Record<string, string> = {}
+  if (input.error.url) metadata.url = input.error.url
+  if (isExpiredCredentials) metadata.expired_credentials = "true"
+
   return {
     type: "api_error",
     message: m,
     statusCode: input.error.statusCode,
-    isRetryable: input.providerID.startsWith("openai") ? isOpenAiErrorRetryable(input.error) : input.error.isRetryable,
+    isRetryable: isExpiredCredentials
+      ? true
+      : input.providerID.startsWith("openai")
+        ? isOpenAiErrorRetryable(input.error)
+        : input.error.isRetryable,
     responseHeaders: input.error.responseHeaders,
     responseBody: input.error.responseBody,
-    metadata,
+    metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
   }
 }
 
