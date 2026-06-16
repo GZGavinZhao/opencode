@@ -336,7 +336,10 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         // Build credential provider options (only pass profile if specified)
         const credentialProviderOptions = profile ? { profile } : {}
 
-        providerOptions.credentialProvider = fromNodeProviderChain(credentialProviderOptions)
+        // Store a factory so evictSDK can create a fresh memoize chain after
+        // a credential refresh. resolveSDK calls this once per SDK instance.
+        providerOptions.credentialProviderFactory = () => fromNodeProviderChain(credentialProviderOptions)
+        providerOptions.credentialProvider = providerOptions.credentialProviderFactory()
       }
 
       // Add custom endpoint if specified (endpoint takes precedence over baseURL)
@@ -1952,6 +1955,13 @@ export const layer = Layer.effect(
       }
       for (const key of s.models.keys()) {
         if (key.startsWith(`${providerID}/`)) s.models.delete(key)
+      }
+      // Replace the cached credential provider with a fresh memoize chain so
+      // the rebuilt SDK doesn't reuse stale in-memory credentials.
+      const info = s.providers[providerID]
+      const factory = info?.options?.credentialProviderFactory
+      if (typeof factory === "function") {
+        info.options.credentialProvider = factory()
       }
     })
 
