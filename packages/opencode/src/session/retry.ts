@@ -177,7 +177,12 @@ function parseJSON(value: unknown) {
 }
 
 export function isExpiredCredentials(error: Err) {
-  return SessionV1.APIError.isInstance(error) && error.data.metadata?.["expired_credentials"] === "true"
+  const isApi = SessionV1.APIError.isInstance(error)
+  const meta = isApi ? (error as any).data?.metadata : undefined
+  console.error(
+    `[auth_refresh] isExpiredCredentials: isApi=${isApi} meta=${JSON.stringify(meta)} expired=${isApi && meta?.["expired_credentials"] === "true"}`,
+  )
+  return isApi && meta?.["expired_credentials"] === "true"
 }
 
 export function policy(opts: {
@@ -196,6 +201,7 @@ export function policy(opts: {
       if (!retry) return Cause.done(meta.attempt)
       return Effect.gen(function* () {
         const expired = isExpiredCredentials(error)
+        console.error(`[auth_refresh] policy Effect.gen: expired=${expired} hasHook=${!!opts.onExpiredCredentials}`)
         if (expired && opts.onExpiredCredentials) yield* opts.onExpiredCredentials()
         const wait = expired ? 0 : delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis
