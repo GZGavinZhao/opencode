@@ -1000,19 +1000,26 @@ export const layer = Layer.effect(
                   Effect.gen(function* () {
                     const cfg = yield* config.get()
                     const authRefresh = cfg.provider?.[input.model.providerID]?.options?.["auth_refresh"]
+                    yield* Effect.logInfo("[auth_refresh] expired credentials detected", {
+                      providerID: input.model.providerID,
+                      hasCommand: typeof authRefresh === "string" && authRefresh.length > 0,
+                    })
                     if (typeof authRefresh === "string" && authRefresh.length > 0) {
-                      yield* Effect.logInfo("Refreshing credentials", {
-                        providerID: input.model.providerID,
-                        command: authRefresh,
-                      })
+                      yield* Effect.logInfo("[auth_refresh] running refresh command", { command: authRefresh })
                       const proc = Bun.spawn(["sh", "-c", authRefresh], { stdout: "pipe", stderr: "pipe" })
                       const exitCode = yield* Effect.promise(() => proc.exited)
+                      const stdout = yield* Effect.promise(() => new Response(proc.stdout).text())
+                      const stderr = yield* Effect.promise(() => new Response(proc.stderr).text())
+                      yield* Effect.logInfo("[auth_refresh] command finished", { exitCode, stdout: stdout.trim(), stderr: stderr.trim() })
                       if (exitCode !== 0) {
-                        const stderr = yield* Effect.promise(() => new Response(proc.stderr).text())
-                        yield* Effect.logWarning("auth_refresh command failed", { exitCode, stderr })
+                        yield* Effect.logWarning("[auth_refresh] command failed", { exitCode, stderr: stderr.trim() })
                       }
+                    } else {
+                      yield* Effect.logWarning("[auth_refresh] no auth_refresh command configured — evicting SDK cache only")
                     }
+                    yield* Effect.logInfo("[auth_refresh] evicting SDK cache", { providerID: input.model.providerID })
                     yield* provider.evictSDK(input.model.providerID)
+                    yield* Effect.logInfo("[auth_refresh] eviction complete, retry will proceed")
                   }),
                 set: (info) => {
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.

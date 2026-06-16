@@ -1949,6 +1949,11 @@ export const layer = Layer.effect(
       // Evict all SDK instances and language models for this provider so the
       // next call to getLanguage rebuilds them with fresh credentials.
       const sdkKeys = s.sdkProviders.get(providerID)
+      yield* Effect.logInfo("[auth_refresh] evictSDK", {
+        providerID,
+        sdkKeysCount: sdkKeys?.size ?? 0,
+        modelKeysCount: [...s.models.keys()].filter((k) => k.startsWith(`${providerID}/`)).length,
+      })
       if (sdkKeys) {
         for (const key of sdkKeys) s.sdk.delete(key)
         s.sdkProviders.delete(providerID)
@@ -1960,8 +1965,13 @@ export const layer = Layer.effect(
       // the rebuilt SDK doesn't reuse stale in-memory credentials.
       const info = s.providers[providerID]
       const factory = info?.options?.credentialProviderFactory
+      yield* Effect.logInfo("[auth_refresh] credential provider factory present", {
+        providerID,
+        hasFactory: typeof factory === "function",
+      })
       if (typeof factory === "function") {
         info.options.credentialProvider = factory()
+        yield* Effect.logInfo("[auth_refresh] credential provider replaced with fresh chain")
       }
     })
 

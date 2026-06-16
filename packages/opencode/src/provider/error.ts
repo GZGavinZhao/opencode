@@ -188,6 +188,12 @@ export function parseAPICallError(input: { providerID: ProviderV2.ID; error: API
   }
 
   const isExpiredCredentials = isExpiredToken(input.error)
+  // Debug log so expired-token detection is visible in logs
+  if (input.error.statusCode === 401 || input.error.statusCode === 403 || isExpiredCredentials) {
+    console.error(
+      `[auth_refresh] parseAPICallError providerID=${input.providerID} status=${input.error.statusCode} isExpiredCredentials=${isExpiredCredentials} responseBody=${input.error.responseBody?.slice(0, 500)}`,
+    )
+  }
   const metadata: Record<string, string> = {}
   if (input.error.url) metadata.url = input.error.url
   if (isExpiredCredentials) metadata.expired_credentials = "true"
