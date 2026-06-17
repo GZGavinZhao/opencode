@@ -202,7 +202,14 @@ export function policy(opts: {
       return Effect.gen(function* () {
         const expired = isExpiredCredentials(error)
         console.error(`[auth_refresh] policy Effect.gen: expired=${expired} hasHook=${!!opts.onExpiredCredentials}`)
-        if (expired && opts.onExpiredCredentials) yield* opts.onExpiredCredentials()
+        if (expired && opts.onExpiredCredentials) {
+          yield* opts.onExpiredCredentials().pipe(
+            Effect.catchCause((cause) =>
+              Effect.sync(() =>
+                console.error(`[auth_refresh] onExpiredCredentials threw:`, Cause.pretty(cause)),
+            ),
+          ))
+        }
         const wait = expired ? 0 : delay(meta.attempt, SessionV1.APIError.isInstance(error) ? error : undefined)
         const now = yield* Clock.currentTimeMillis
         yield* opts.set({
