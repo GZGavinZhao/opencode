@@ -1946,32 +1946,23 @@ export const layer = Layer.effect(
 
     const evictSDK = Effect.fn("Provider.evictSDK")(function* (providerID: ProviderV2.ID) {
       const s = yield* InstanceState.get(state)
-      // Evict all SDK instances and language models for this provider so the
-      // next call to getLanguage rebuilds them with fresh credentials.
       const sdkKeys = s.sdkProviders.get(providerID)
-      yield* Effect.logInfo("[auth_refresh] evictSDK", {
-        providerID,
-        sdkKeysCount: sdkKeys?.size ?? 0,
-        modelKeysCount: [...s.models.keys()].filter((k) => k.startsWith(`${providerID}/`)).length,
-      })
+      const modelKeys = [...s.models.keys()].filter((k) => k.startsWith(`${providerID}/`))
+      console.error(`[auth_refresh] evictSDK providerID=${providerID} sdkKeysCount=${sdkKeys?.size ?? 0} modelKeysCount=${modelKeys.length}`)
       if (sdkKeys) {
         for (const key of sdkKeys) s.sdk.delete(key)
         s.sdkProviders.delete(providerID)
       }
-      for (const key of s.models.keys()) {
-        if (key.startsWith(`${providerID}/`)) s.models.delete(key)
-      }
+      for (const key of modelKeys) s.models.delete(key)
       // Replace the cached credential provider with a fresh memoize chain so
       // the rebuilt SDK doesn't reuse stale in-memory credentials.
       const info = s.providers[providerID]
       const factory = info?.options?.credentialProviderFactory
-      yield* Effect.logInfo("[auth_refresh] credential provider factory present", {
-        providerID,
-        hasFactory: typeof factory === "function",
-      })
+      console.error(`[auth_refresh] evictSDK hasInfo=${!!info} hasFactory=${typeof factory === "function"} optionKeys=${JSON.stringify(Object.keys(info?.options ?? {}))}`)
       if (typeof factory === "function") {
+        const oldProvider = info.options.credentialProvider
         info.options.credentialProvider = factory()
-        yield* Effect.logInfo("[auth_refresh] credential provider replaced with fresh chain")
+        console.error(`[auth_refresh] evictSDK replaced credentialProvider oldIsSame=${oldProvider === info.options.credentialProvider}`)
       }
     })
 

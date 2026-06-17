@@ -1015,6 +1015,16 @@ export const layer = Layer.effect(
                     console.error(`[auth_refresh] evicting SDK cache providerID=${input.model.providerID}`)
                     yield* provider.evictSDK(input.model.providerID)
                     console.error("[auth_refresh] eviction complete, retry will proceed")
+                    // Probe: directly resolve credentials to verify they are fresh
+                    yield* Effect.promise(async () => {
+                      try {
+                        const { fromNodeProviderChain } = await import("@aws-sdk/credential-providers")
+                        const creds = await fromNodeProviderChain({ profile: "claude-code-DO-NOT-DELETE" })()
+                        console.error(`[auth_refresh] probe credentials: accessKeyId=${creds.accessKeyId?.slice(0, 8)}... expiration=${creds.expiration?.toISOString()}`)
+                      } catch (e) {
+                        console.error(`[auth_refresh] probe credentials error:`, e)
+                      }
+                    })
                   }),
                 set: (info) => {
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
